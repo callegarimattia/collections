@@ -4,6 +4,13 @@
     push:
       branches:
         - main
+    pull_request:
+      types:
+        - opened
+        - reopened
+        - synchronize
+        - closed
+
 
   permissions:
     contents: read
@@ -21,3 +28,5 @@
         - uses: release-drafter/release-drafter@v6
           with:
             config-name: release-drafter.yml
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
