@@ -1,0 +1,2 @@
+# collections
+Collections in Go
