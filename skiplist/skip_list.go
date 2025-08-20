@@ -9,10 +9,11 @@ import (
 	"sync"
 )
 
-const (
-	LAYER_PROMOTION_PROB = 0.25
-	MAX_LAYER            = 32
-)
+// The probability of promoting a node to the next level.
+// It can be adjusted to control the average height of the skip list.
+var LAYER_PROMOTION_PROB = 0.25
+
+const MAX_LAYER = 32
 
 type SkipList[T any] interface {
 	Get(key int) (T, bool)
@@ -27,7 +28,7 @@ type skipList[T any] struct {
 	head  *skipListNode[T] // Head node of the skip list
 	level int              // Current highest level of the skip list
 	size  int              // Number of elements in the skip list
-	rng   func() int       // Function to generate random levels for new nodes
+	Rng   func() int       // Function to generate random levels for new nodes
 	pool  sync.Pool        // Pool for reusing nodes to reduce memory allocation overhead
 	mu    sync.RWMutex     // Mutex for thread-safe operations
 }
@@ -36,12 +37,18 @@ type skipListNode[T any] struct {
 	forward [MAX_LAYER + 1]*skipListNode[T] // Pointers to the next nodes at each level
 	key     int                             //	Key of the node. Used for sorting.
 	level   int                             // The number of levels this node has
-	value   T
+	value   T                               // Value associated with the key
 }
 
+// CreateSkipList initializes a new skip list with the default parameters.
+// The skip list is generic and can hold any type of value.
+// The random level generator is set to a geometric distribution with a promotion probability
+// decided by the package level variable `LAYER_PROMOTION_PROB`.
+// If a custom random level generator is needed,
+// it can be overridden by setting the `Rng` field of the skip list after creation.
 func CreateSkipList[T any]() *skipList[T] {
 	s := &skipList[T]{
-		rng:  defaultRngLevelGen(LAYER_PROMOTION_PROB, MAX_LAYER),
+		Rng:  defaultRngLevelGen(LAYER_PROMOTION_PROB, MAX_LAYER),
 		pool: newPool[T](),
 	}
 	s.head = s.createNode(MAX_LAYER, 0, *new(T)) // Create a head node with maximum level
@@ -88,7 +95,7 @@ func (s *skipList[T]) Insert(key int, val T) {
 		return
 	}
 
-	lvl := s.rng()
+	lvl := s.Rng()
 	if lvl > s.level {
 		for i := s.level + 1; i <= lvl; i++ {
 			update[i] = s.head
