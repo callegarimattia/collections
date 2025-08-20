@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"example.com/skiplist"
+	"github.com/callegarimattia/collections/skiplist"
 )
 
 func main() {

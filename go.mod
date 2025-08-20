@@ -1,4 +1,4 @@
-module example.com
+module github.com/callegarimattia/collections
 
 go 1.25.0
 

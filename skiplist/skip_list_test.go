@@ -4,7 +4,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"example.com/skiplist"
+	"github.com/callegarimattia/collections/skiplist"
 )
 
 func BenchmarkInsert(b *testing.B) {
@@ -73,11 +73,11 @@ func BenchmarkGet(b *testing.B) {
 	const prefill = 100_000
 	keys := rand.Perm(prefill)
 	s := skiplist.CreateSkipList[*int]()
-	
+
 	for i := range prefill {
 		s.Insert(keys[i], nil)
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; b.Loop(); i++ {
 		s.Get(keys[i%prefill])
@@ -89,11 +89,11 @@ func BenchmarkMixedWorkload(b *testing.B) {
 	const randSize = 1_000_000
 	keys := rand.Perm(randSize)
 	s := skiplist.CreateSkipList[*int]()
-	
+
 	for i := range prefill {
 		s.Insert(keys[i], nil)
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; b.Loop(); i++ {
 		keyIndex := i % randSize
