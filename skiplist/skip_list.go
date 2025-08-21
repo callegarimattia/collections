@@ -1,9 +1,11 @@
 // Skip List Implementation in Go.
 // This implementation is a generic skip list that supports concurrent access.
+// It leverages a sync.Pool for node reuse to minimize memory allocation overhead.
+// It uses a novel random level generator based on a geometric distribution, instead
+// of the traditional iterational coin flip method.
 package skiplist
 
 import (
-	"fmt"
 	"math"
 	"math/rand/v2"
 	"sync"
@@ -13,22 +15,16 @@ import (
 // It can be adjusted to control the average height of the skip list.
 var LAYER_PROMOTION_PROB = 0.25
 
+// The maximum number of layers in the skip list.
 const MAX_LAYER = 32
 
-type SkipList[T any] interface {
-	Get(key int) (T, bool)
-	Insert(key int, val T)
-	Delete(key int) bool
-	Size() int
-}
-
-var _ SkipList[int] = (*skipList[int])(nil)
-
-type skipList[T any] struct {
+// The SkipList struct represents a skip list.
+// It contains a head node, the current highest level, the size of the list,
+// a sync.Pool for node reuse, and a rwmutex.
+type SkipList[T any] struct {
 	head  *skipListNode[T] // Head node of the skip list
 	level int              // Current highest level of the skip list
 	size  int              // Number of elements in the skip list
-	Rng   func() int       // Function to generate random levels for new nodes
 	pool  sync.Pool        // Pool for reusing nodes to reduce memory allocation overhead
 	mu    sync.RWMutex     // Mutex for thread-safe operations
 }
@@ -44,19 +40,15 @@ type skipListNode[T any] struct {
 // The skip list is generic and can hold any type of value.
 // The random level generator is set to a geometric distribution with a promotion probability
 // decided by the package level variable `LAYER_PROMOTION_PROB`.
-// If a custom random level generator is needed,
-// it can be overridden by setting the `Rng` field of the skip list after creation.
-func CreateSkipList[T any]() *skipList[T] {
-	s := &skipList[T]{
-		Rng:  defaultRngLevelGen(LAYER_PROMOTION_PROB, MAX_LAYER),
-		pool: newPool[T](),
-	}
+func CreateSkipList[T any]() *SkipList[T] {
+	s := &SkipList[T]{pool: newPool[T]()}
 	s.head = s.createNode(MAX_LAYER, 0, *new(T)) // Create a head node with maximum level
 	return s
 }
 
 // Get retrieves the value associated with the given key from the skip list.
-func (s *skipList[T]) Get(key int) (T, bool) {
+// Time complexity is O(log n) on average.
+func (s *SkipList[T]) Get(key int) (T, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	x := s.head
@@ -77,7 +69,8 @@ func (s *skipList[T]) Get(key int) (T, bool) {
 }
 
 // Insert adds a new node with the given key and value to the skip list.
-func (s *skipList[T]) Insert(key int, val T) {
+// Time complexity is O(log n) on average.
+func (s *SkipList[T]) Insert(key int, val T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	update := make([]*skipListNode[T], MAX_LAYER+1)
@@ -95,7 +88,7 @@ func (s *skipList[T]) Insert(key int, val T) {
 		return
 	}
 
-	lvl := s.Rng()
+	lvl := defaultRngLevelGen(LAYER_PROMOTION_PROB, MAX_LAYER)
 	if lvl > s.level {
 		for i := s.level + 1; i <= lvl; i++ {
 			update[i] = s.head
@@ -112,7 +105,9 @@ func (s *skipList[T]) Insert(key int, val T) {
 	s.size++
 }
 
-func (s *skipList[T]) Delete(key int) bool {
+// Delete removes the node with the given key from the skip list.
+// Time complexity is O(log n) on average.
+func (s *SkipList[T]) Delete(key int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	update := [MAX_LAYER + 1]*skipListNode[T]{}
@@ -148,30 +143,14 @@ func (s *skipList[T]) Delete(key int) bool {
 	return true
 }
 
-func (s *skipList[T]) Size() int {
+// Size returns the number of elements in the skip list.
+func (s *SkipList[T]) Size() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.size
 }
 
-func (s *skipList[T]) Print() {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for i := s.level; i >= 0; i-- {
-		x := s.head.forward[i]
-		for x != nil {
-			print(x.key, " ")
-			x = x.forward[i]
-		}
-		println()
-	}
-}
-
-func (n *skipListNode[T]) String() string {
-	return "{Key: " + fmt.Sprint(n.key) + ", Value: " + fmt.Sprint(n.value) + ", Level: " + fmt.Sprint(n.level) + "}"
-}
-
-func (s *skipList[T]) createNode(level, key int, value T) *skipListNode[T] {
+func (s *SkipList[T]) createNode(level, key int, value T) *skipListNode[T] {
 	n := s.pool.Get().(*skipListNode[T])
 	n.level = level
 	n.key = key
@@ -179,7 +158,7 @@ func (s *skipList[T]) createNode(level, key int, value T) *skipListNode[T] {
 	return n
 }
 
-func (s *skipList[T]) freeNode(node *skipListNode[T]) {
+func (s *SkipList[T]) freeNode(node *skipListNode[T]) {
 	var zero T
 	node.value = zero
 	for i := range node.forward {
@@ -190,21 +169,22 @@ func (s *skipList[T]) freeNode(node *skipListNode[T]) {
 	s.pool.Put(node)
 }
 
-func defaultRngLevelGen(p float64, m int) func() int {
-	return func() int {
-		return min(m, geometric(p))
-	}
+func defaultRngLevelGen(p float64, m int) int {
+	return min(m, geometric(p))
 }
 
 // geometric distribution sampler.
+// panics if p is not in (0,1).
 func geometric(p float64) int {
 	if p <= 0 || p >= 1 {
 		panic("nice try, p must be in (0,1)")
 	}
 	u := rand.Float64() // uniform(0,1)
-	return int(math.Ceil(math.Log(1-u) / math.Log(p)))
+
+	return int(math.Ceil(math.Log(1-u) / math.Log(p))) // math is hard.
 }
 
+// Generates a new sync.Pool for skip list nodes of type T.
 func newPool[T any]() sync.Pool {
 	return sync.Pool{
 		New: func() any {
